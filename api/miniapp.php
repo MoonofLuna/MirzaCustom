@@ -1159,6 +1159,153 @@ $textonebuy
             )
         ));
         break;
+    case 'topup_methods':
+        if ($method !== "GET") {
+            echo json_encode([
+                'status' => false,
+                'msg' => "Method invalid; must be GET",
+            ]);
+            return;
+        }
+        $methods = [];
+        if (getPaySettingValue('zarinpalstatus') === 'onzarinpal') {
+            $methods[] = [
+                'id' => 'zarinpal',
+                'name' => 'زرین‌پال',
+                'min' => intval(getPaySettingValue('minbalancezarinpal')),
+                'max' => intval(getPaySettingValue('maxbalancezarinpal')),
+            ];
+        }
+        if (getPaySettingValue('zarinpeystatus') === 'onzarinpey') {
+            $methods[] = [
+                'id' => 'zarinpey',
+                'name' => 'زرین‌پی',
+                'min' => intval(getPaySettingValue('minbalancezarinpey')),
+                'max' => intval(getPaySettingValue('maxbalancezarinpey')),
+            ];
+        }
+        echo json_encode([
+            'status' => true,
+            'msg' => "Successful",
+            'obj' => $methods
+        ]);
+        break;
+    case 'topup_create':
+        if ($method !== "POST") {
+            echo json_encode([
+                'status' => false,
+                'msg' => "Method invalid; must be POST",
+            ]);
+            return;
+        }
+        $user_info = select("user", "*", "token", $tokencheck, "select");
+        if (!$user_info) {
+            http_response_code(404);
+            echo json_encode([
+                'status' => false,
+                'msg' => "User Not Found",
+            ]);
+            return;
+        }
+        $amount = isset($data['amount']) ? intval($data['amount']) : 0;
+        $methodId = isset($data['method']) ? $data['method'] : '';
+        if ($amount <= 0) {
+            http_response_code(400);
+            echo json_encode([
+                'status' => false,
+                'msg' => "مبلغ نامعتبر است",
+            ]);
+            return;
+        }
+        if ($methodId === 'zarinpal') {
+            if (getPaySettingValue('zarinpalstatus') !== 'onzarinpal') {
+                http_response_code(400);
+                echo json_encode([
+                    'status' => false,
+                    'msg' => "درگاه زرین‌پال فعال نیست",
+                ]);
+                return;
+            }
+            $min = intval(getPaySettingValue('minbalancezarinpal'));
+            $max = intval(getPaySettingValue('maxbalancezarinpal'));
+            if ($amount < $min || ($max > 0 && $amount > $max)) {
+                http_response_code(400);
+                echo json_encode([
+                    'status' => false,
+                    'msg' => "مبلغ باید بین $min تا $max تومان باشد",
+                ]);
+                return;
+            }
+            $randomString = bin2hex(random_bytes(5));
+            $pay = createPayZarinpal($amount, $randomString);
+            if (!isset($pay['data']['code']) || intval($pay['data']['code']) !== 100) {
+                http_response_code(502);
+                echo json_encode([
+                    'status' => false,
+                    'msg' => "خطا در اتصال به درگاه پرداخت",
+                ]);
+                return;
+            }
+            $authority = $pay['data']['authority'];
+            $payUrl = "https://www.zarinpal.com/pg/StartPay/" . $authority;
+            $decNotConfirmed = $authority;
+            $paymentMethodCol = 'zarinpal';
+        } elseif ($methodId === 'zarinpey') {
+            if (getPaySettingValue('zarinpeystatus') !== 'onzarinpey') {
+                http_response_code(400);
+                echo json_encode([
+                    'status' => false,
+                    'msg' => "درگاه زرین‌پی فعال نیست",
+                ]);
+                return;
+            }
+            $min = intval(getPaySettingValue('minbalancezarinpey'));
+            $max = intval(getPaySettingValue('maxbalancezarinpey'));
+            if ($amount < $min || ($max > 0 && $amount > $max)) {
+                http_response_code(400);
+                echo json_encode([
+                    'status' => false,
+                    'msg' => "مبلغ باید بین $min تا $max تومان باشد",
+                ]);
+                return;
+            }
+            $randomString = bin2hex(random_bytes(5));
+            $pay = createPayZarinpey($amount, $randomString, $user_info['id']);
+            if (empty($pay['success'])) {
+                http_response_code(502);
+                echo json_encode([
+                    'status' => false,
+                    'msg' => $pay['message'] ?? "خطا در اتصال به درگاه پرداخت",
+                ]);
+                return;
+            }
+            $payUrl = $pay['payment_link'];
+            $decNotConfirmed = $pay['authority'] ?? '';
+            $paymentMethodCol = 'zarinpay';
+        } else {
+            http_response_code(400);
+            echo json_encode([
+                'status' => false,
+                'msg' => "روش پرداخت نامعتبر است",
+            ]);
+            return;
+        }
+        $dateacc = date('Y/m/d H:i:s');
+        $payment_Status = "Unpaid";
+        $id_invoice = "miniapp_topup";
+        $stmt = $connect->prepare("INSERT INTO Payment_report (id_user, id_order, time, price, payment_Status, Payment_Method, id_invoice, dec_not_confirmed) VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
+        $stmt->bind_param("ssssssss", $user_info['id'], $randomString, $dateacc, $amount, $payment_Status, $paymentMethodCol, $id_invoice, $decNotConfirmed);
+        $stmt->execute();
+        $stmt->close();
+        echo json_encode([
+            'status' => true,
+            'msg' => "Successful",
+            'obj' => [
+                'order_id' => $randomString,
+                'pay_url' => $payUrl
+            ]
+        ]);
+        break;
     default:
         echo json_encode([
             'status' => false,
