@@ -159,6 +159,11 @@ if ($setting['inlinebtnmain'] == "oninline" && !empty($keyboardRows)) {
     $keyboardcustom = $trace_keyboard;
     $keyboardcustom = json_decode(strtr(strval(json_encode($keyboardcustom)), $replacements), true);
     $keyboardcustom[] = $temp_addtional_key;
+    if (!empty($domainhosts)) {
+        $keyboardcustom[] = [
+            ['text' => '🚀 اپلیکیشن', 'web_app' => ['url' => 'https://' . $domainhosts . '/app/']]
+        ];
+    }
     $keyboard['inline_keyboard'] = $keyboardcustom;
     $keyboard = json_encode($keyboard);
 } else {
@@ -175,6 +180,11 @@ if ($setting['inlinebtnmain'] == "oninline" && !empty($keyboardRows)) {
     $keyboardcustom = $keyboardRows;
     $keyboardcustom = json_decode(strtr(strval(json_encode($keyboardcustom)), $replacements), true);
     $keyboardcustom[] = $temp_addtional_key;
+    if (!empty($domainhosts)) {
+        $keyboardcustom[] = [
+            ['text' => '🚀 اپلیکیشن', 'web_app' => ['url' => 'https://' . $domainhosts . '/app/']]
+        ];
+    }
     $keyboard['keyboard'] = $keyboardcustom;
     $keyboard = json_encode($keyboard);
 }
@@ -1307,6 +1317,9 @@ $keyboardtypepanel = json_encode([
         [
             ['text' => "ibsng", 'callback_data' => 'typepanel#ibsng'],
             ['text' => "میکروتیک", 'callback_data' => 'typepanel#mikrotik']
+        ],
+        [
+            ['text' => "Rebecca", 'callback_data' => 'typepanel#rebecca']
         ],
         [
             ['text' => $textbotlang['Admin']['backadmin'] , 'callback_data' => 'admin']

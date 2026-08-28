@@ -12,6 +12,7 @@ require_once __DIR__ . '/WGDashboard.php';
 require_once __DIR__ . '/s_ui.php';
 require_once __DIR__ . '/ibsng.php';
 require_once __DIR__ . '/mikrotik.php';
+require_once __DIR__ . '/Rebecca.php';
 
 class ManagePanel
 {
@@ -411,6 +412,35 @@ class ManagePanel
                 $Output['username'] = $usernameC;
                 $Output['subscription_url'] = $password;
                 $Output['configs'] = [];
+            }
+        } elseif ($Get_Data_Panel['type'] == "rebecca") {
+            $ConnectToPanel = adduser_rebecca($Get_Data_Panel['name_panel'], $data_limit, $usernameC, $expire, $note, $Get_Data_Product['data_limit_reset'], $Get_Data_Product['name_product']);
+            if (!empty($ConnectToPanel['error'])) {
+                return array(
+                    'status' => 'Unsuccessful',
+                    'msg' => $ConnectToPanel['error']
+                );
+            }
+            $data_Output = json_decode($ConnectToPanel['body'], true);
+            if (!empty($ConnectToPanel['status']) && $ConnectToPanel['status'] >= 400) {
+                $Output['status'] = 'Unsuccessful';
+                $Output['msg'] = !empty($data_Output['detail']) ? $data_Output['detail'] : ('error code : ' . $ConnectToPanel['status']);
+            } else {
+                if (!preg_match('/^(https?:\/\/)?([a-zA-Z0-9-]+\.)+[a-zA-Z]{2,}(:\d+)?((\/[^\s\/]+)+)?$/', $data_Output['subscription_url'])) {
+                    $data_Output['subscription_url'] = $Get_Data_Panel['url_panel'] . "/" . ltrim($data_Output['subscription_url'], "/");
+                }
+                $data_Output['links'] = outputlunk($data_Output['subscription_url']);
+                if (isBase64($data_Output['links'])) {
+                    $data_Output['links'] = base64_decode($data_Output['links']);
+                }
+                $links_user = explode("\n", trim($data_Output['links']));
+                if ($inoice != false) {
+                    $data_Output['subscription_url'] = "https://$domainhosts/sub/" . $inoice['id_invoice'];
+                }
+                $Output['status'] = 'successful';
+                $Output['username'] = $data_Output['username'];
+                $Output['subscription_url'] = $data_Output['subscription_url'];
+                $Output['configs'] = $links_user;
             }
         } else {
             $Output['status'] = 'Unsuccessful';
@@ -990,6 +1020,53 @@ class ManagePanel
                     'sub_last_user_agent' => null,
                 );
             }
+        } elseif ($Get_Data_Panel['type'] == "rebecca") {
+            $UsernameData = getuser_rebecca($username, $Get_Data_Panel['name_panel']);
+            if (!empty($UsernameData['error'])) {
+                $Output = array(
+                    'status' => 'Unsuccessful',
+                    'msg' => $UsernameData['error']
+                );
+            } elseif (!empty($UsernameData['status']) && $UsernameData['status'] >= 400) {
+                $Output = array(
+                    'status' => 'Unsuccessful',
+                    'msg' => 'error code : ' . $UsernameData['status']
+                );
+            } else {
+                $UsernameData = json_decode($UsernameData['body'], true);
+                if (!is_array($UsernameData) || empty($UsernameData['username'])) {
+                    $Output = array(
+                        'status' => 'Unsuccessful',
+                        'msg' => !empty($UsernameData['detail']) ? $UsernameData['detail'] : 'User not found'
+                    );
+                } else {
+                    if (!preg_match('/^(https?:\/\/)?([a-zA-Z0-9-]+\.)+[a-zA-Z]{2,}(:\d+)?((\/[^\s\/]+)+)?$/', $UsernameData['subscription_url'])) {
+                        $UsernameData['subscription_url'] = $Get_Data_Panel['url_panel'] . "/" . ltrim($UsernameData['subscription_url'], "/");
+                    }
+                    $links_raw = outputlunk($UsernameData['subscription_url']);
+                    if (isBase64($links_raw)) {
+                        $links_raw = base64_decode($links_raw);
+                    }
+                    $links_user = explode("\n", trim($links_raw));
+                    if ($inoice != false) {
+                        $UsernameData['subscription_url'] = "https://$domainhosts/sub/" . $inoice['id_invoice'];
+                    }
+                    $Output = array(
+                        'status' => $UsernameData['status'],
+                        'username' => $UsernameData['username'],
+                        'data_limit' => $UsernameData['data_limit'],
+                        'expire' => $UsernameData['expire'],
+                        'online_at' => isset($UsernameData['online_at']) ? $UsernameData['online_at'] : null,
+                        'used_traffic' => $UsernameData['used_traffic'],
+                        'links' => $links_user,
+                        'subscription_url' => $UsernameData['subscription_url'],
+                        'sub_updated_at' => isset($UsernameData['sub_updated_at']) ? $UsernameData['sub_updated_at'] : null,
+                        'sub_last_user_agent' => isset($UsernameData['sub_last_user_agent']) ? $UsernameData['sub_last_user_agent'] : null,
+                        'uuid' => null,
+                        'data_limit_reset' => isset($UsernameData['data_limit_reset_strategy']) ? $UsernameData['data_limit_reset_strategy'] : null
+                    );
+                }
+            }
         } else {
             $Output = array(
                 'status' => 'Unsuccessful',
@@ -1191,6 +1268,27 @@ class ManagePanel
                     'subscription_url' => $url_sub,
                 );
             }
+        } elseif ($Get_Data_Panel['type'] == "rebecca") {
+            $revoke_sub = revoke_sub_rebecca($username, $name_panel);
+            if (!empty($revoke_sub['error'])) {
+                $Output = array(
+                    'status' => 'Unsuccessful',
+                    'msg' => $revoke_sub['error']
+                );
+            } elseif (!empty($revoke_sub['status']) && $revoke_sub['status'] >= 400) {
+                $Output = array(
+                    'status' => 'Unsuccessful',
+                    'msg' => 'error code : ' . $revoke_sub['status']
+                );
+            } else {
+                $config = new ManagePanel();
+                $Data_User = $config->DataUser($name_panel, $username);
+                $Output = array(
+                    'status' => 'successful',
+                    'configs' => $Data_User['links'],
+                    'subscription_url' => $Data_User['subscription_url']
+                );
+            }
         } else {
             $Output = array(
                 'status' => 'Unsuccessful',
@@ -1340,6 +1438,24 @@ class ManagePanel
                 );
             } else {
                 deleteUser_mikrotik($Get_Data_Panel['name_panel'], $UsernameData['.id']);
+                $Output = array(
+                    'status' => 'successful',
+                    'username' => $username,
+                );
+            }
+        } elseif ($Get_Data_Panel['type'] == "rebecca") {
+            $UsernameData = removeuser_rebecca($Get_Data_Panel['name_panel'], $username);
+            if (!empty($UsernameData['error'])) {
+                $Output = array(
+                    'status' => 'Unsuccessful',
+                    'msg' => $UsernameData['error']
+                );
+            } elseif (!empty($UsernameData['status']) && $UsernameData['status'] >= 400) {
+                $Output = array(
+                    'status' => 'Unsuccessful',
+                    'msg' => 'error code : ' . $UsernameData['status']
+                );
+            } else {
                 $Output = array(
                     'status' => 'successful',
                     'username' => $username,
@@ -1618,6 +1734,24 @@ class ManagePanel
                 'status' => true,
                 'data' => $modify
             );
+        } elseif ($Get_Data_Panel['type'] == "rebecca") {
+            $modify = Modifyuser_rebecca($name_panel, $username, $config);
+            if (!empty($modify['error'])) {
+                return array(
+                    'status' => false,
+                    'msg' => $modify['error']
+                );
+            } elseif (!empty($modify['status']) && $modify['status'] >= 400) {
+                $body = json_decode($modify['body'], true);
+                return array(
+                    'status' => false,
+                    'msg' => !empty($body['detail']) ? $body['detail'] : ('error code : ' . $modify['status'])
+                );
+            }
+            return array(
+                'status' => true,
+                'data' => json_decode($modify['body'], true)
+            );
         }
     }
     function Change_status($username, $name_panel)
@@ -1713,6 +1847,14 @@ class ManagePanel
                 $status = true;
             }
             $configs = array("enable" => $status);
+            $ManagePanel->Modifyuser($username, $name_panel, $configs);
+            $Output = array(
+                'status' => 'successful',
+                'msg' => null
+            );
+        } elseif ($Get_Data_Panel['type'] == "rebecca") {
+            $status = $DataUserOut['status'] == "active" ? "disabled" : "active";
+            $configs = array("status" => $status);
             $ManagePanel->Modifyuser($username, $name_panel, $configs);
             $Output = array(
                 'status' => 'successful',
@@ -1873,6 +2015,23 @@ class ManagePanel
             ResetUserDataUsages_ui($username, $name_panel);
             return array(
                 'status' => true
+            );
+        } elseif ($panel['type'] == "rebecca") {
+            $reset = ResetUserDataUsage_rebecca($username, $panel['name_panel']);
+            if (!empty($reset['error'])) {
+                return array(
+                    'status' => false,
+                    'msg' => 'error  : ' . $reset['error']
+                );
+            } elseif (!empty($reset['status']) && $reset['status'] >= 400) {
+                return array(
+                    'status' => false,
+                    'msg' => 'error code : ' . $reset['status']
+                );
+            }
+            return array(
+                'status' => true,
+                'msg' => 'successful'
             );
         }
     }
@@ -2099,6 +2258,11 @@ class ManagePanel
                 "volume" => $data_limit_new,
                 "expiry" => $time_new
             );
+        } elseif ($panel['type'] == "rebecca") {
+            $data = array(
+                'data_limit' => $data_limit_new,
+                'expire' => $time_new,
+            );
         }
         $extend = $this->Modifyuser($username, $panel['name_panel'], $data);
         if ($extend['status'] == false) {
@@ -2242,6 +2406,10 @@ class ManagePanel
             $data = array(
                 "volume" => $new_limit,
             );
+        } elseif ($panel['type'] == "rebecca") {
+            $data = array(
+                'data_limit' => $new_limit,
+            );
         }
         $extra_volume = $this->Modifyuser($username_account, $panel['name_panel'], $data);
         if ($extra_volume['status'] == false) {
@@ -2383,6 +2551,10 @@ class ManagePanel
         } elseif ($panel['type'] == "s_ui") {
             $data = array(
                 "expiry" => $new_limit,
+            );
+        } elseif ($panel['type'] == "rebecca") {
+            $data = array(
+                'expire' => $new_limit,
             );
         }
         $extra_time = $this->Modifyuser($username_account, $panel['name_panel'], $data);
