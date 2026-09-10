@@ -39,8 +39,10 @@ $columns = [
     ['product', 'inbound_list', null, 'TEXT'],
     ['product', 'protocol',     null, 'VARCHAR(32)'],
 
-    // invoice — records which inbound ids an account was created in
+    // invoice — records which inbound ids an account was created in, and the
+    // credentials needed to rebuild non-Xray links (mtproto secret, passwords)
     ['invoice', 'panel_inbounds', null, 'TEXT'],
+    ['invoice', 'xui_creds',      null, 'TEXT'],
 ];
 
 echo "mirza_pro :: x_ui / vpn_ui schema migration" . $eol;

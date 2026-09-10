@@ -96,13 +96,40 @@ function xuisvc_expire_ms(array $panel, $expireUnix, string $configType, $produc
 /** Pick a client object to feed the link builder (real stored one if present). */
 function xuisvc_client_for_links(array $acct, array $field_bag): array
 {
+    $stored = null;
     foreach ($acct['clients'] as $c) {
         if (is_array($c) && !empty($c)) {
-            return $c;
+            $stored = $c;
+            break;
         }
     }
-    $proto = $acct['protocol'] ?: 'vless';
-    return xui_build_client($proto, $field_bag);
+    $proto = $acct['protocol'] ?: ($field_bag['protocol'] ?? 'vless');
+    // Rebuild from the known field bag so secret / password identities are present
+    // (vpn-ui's /list does not echo them back), then overlay anything the panel
+    // does return (uuid, flow, mode flags, tlsDomain ...).
+    $rebuilt = xui_build_client($proto, $field_bag);
+    return is_array($stored) ? array_replace($rebuilt, array_filter($stored, fn($v) => $v !== null && $v !== '')) : $rebuilt;
+}
+
+/** Persist the credentials needed to rebuild non-Xray links later. */
+function xuisvc_creds_save(string $username, array $creds): void
+{
+    if ((int) select("invoice", "*", "username", $username, "count") > 0) {
+        update("invoice", "xui_creds", json_encode($creds, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE), "username", $username);
+    }
+}
+
+/** Load stored credentials for an account, or []. */
+function xuisvc_creds_load(string $username): array
+{
+    $row = select("invoice", "xui_creds", "username", $username, "select");
+    if (is_array($row) && !empty($row['xui_creds'])) {
+        $d = json_decode($row['xui_creds'], true);
+        if (is_array($d)) {
+            return $d;
+        }
+    }
+    return [];
 }
 
 /* -------------------------------------------------------------------------- */
@@ -121,9 +148,14 @@ function xuisvc_create(array $panel, $product, string $usernameC, array $Data_Co
     $subId = bin2hex(random_bytes(8));
     $productName = is_array($product) ? ($product['name_product'] ?? null) : null;
 
+    // Generate every identity once and thread it through, so the exact objects
+    // we send can be rebuilt afterwards for link assembly / later re-fetch.
     $field_bag = [
         'email' => $usernameC,
         'uuid' => $uuid,
+        'password' => xui_secret(20),
+        'secret' => xui_secret(16, true),
+        'sshUser' => preg_replace('/[^a-z0-9_]/i', '', explode('@', $usernameC)[0]) ?: ('u' . substr(bin2hex(random_bytes(4)), 0, 6)),
         'subId' => $subId,
         'expiryMs' => xuisvc_expire_ms($panel, $Data_Config['expire'] ?? 0, (string) ($Data_Config['type'] ?? ''), $productName),
         'totalBytes' => (int) ($Data_Config['data_limit'] ?? 0),
@@ -136,8 +168,23 @@ function xuisvc_create(array $panel, $product, string $usernameC, array $Data_Co
         return ['status' => 'Unsuccessful', 'msg' => $res['msg'] ?? 'addClient failed'];
     }
 
+    // Remember creds + which inbound each protocol landed on for later re-fetch.
+    xuisvc_creds_save($usernameC, [
+        'uuid' => $uuid,
+        'password' => $field_bag['password'],
+        'secret' => $field_bag['secret'],
+        'sshUser' => $field_bag['sshUser'],
+        'subId' => $subId,
+        'inbounds' => array_values($ids),
+        'protocols' => $res['protocols'] ?? [],
+    ]);
+
     $acct = xui_find_client($panel['code_panel'], $usernameC);
-    $client = xuisvc_client_for_links($acct, $field_bag);
+    // Prefer the exact object we just sent for the first inbound.
+    $sent = $res['clients'][$ids[0]] ?? null;
+    $client = is_array($sent) && !empty($sent)
+        ? $sent
+        : xuisvc_client_for_links($acct, $field_bag);
     $links = xui_client_links($panel['code_panel'], $ids, $client, $subId, ['email' => $usernameC]);
 
     $configs = $links['configs'];
@@ -183,9 +230,18 @@ function xuisvc_datauser(array $panel, string $username): array
         $expire = 0;
     }
 
-    $subId = $acct['subId'] ?: ($obj['subId'] ?? '');
+    $creds = xuisvc_creds_load($username);
+    $subId = $acct['subId'] ?: ($creds['subId'] ?? ($obj['subId'] ?? ''));
     $ids = xuisvc_inbounds_for_existing($panel, $username, $acct);
-    $client = xuisvc_client_for_links($acct, ['email' => $username, 'uuid' => $acct['uuid'] ?? null, 'subId' => $subId]);
+    $client = xuisvc_client_for_links($acct, [
+        'email' => $username,
+        'uuid' => $acct['uuid'] ?? ($creds['uuid'] ?? null),
+        'password' => $creds['password'] ?? null,
+        'secret' => $creds['secret'] ?? null,
+        'sshUser' => $creds['sshUser'] ?? null,
+        'subId' => $subId,
+        'protocol' => $acct['protocol'] ?? null,
+    ]);
     $links = xui_client_links($panel['code_panel'], $ids, $client, (string) $subId, ['email' => $username]);
 
     $lastOnline = (int) ($obj['lastOnline'] ?? 0);
@@ -243,8 +299,20 @@ function xuisvc_revoke(array $panel, string $username): array
         return ['status' => 'Unsuccessful', 'msg' => $r['msg'] ?? 'revoke failed'];
     }
 
+    $creds = xuisvc_creds_load($username);
+    $creds['subId'] = $newSub;
+    xuisvc_creds_save($username, $creds);
+
     $acct = xui_find_client($panel['code_panel'], $username);
-    $client = xuisvc_client_for_links($acct, ['email' => $username, 'uuid' => $acct['uuid'] ?? null, 'subId' => $newSub]);
+    $client = xuisvc_client_for_links($acct, [
+        'email' => $username,
+        'uuid' => $acct['uuid'] ?? ($creds['uuid'] ?? null),
+        'password' => $creds['password'] ?? null,
+        'secret' => $creds['secret'] ?? null,
+        'sshUser' => $creds['sshUser'] ?? null,
+        'subId' => $newSub,
+        'protocol' => $acct['protocol'] ?? null,
+    ]);
     $links = xui_client_links($panel['code_panel'], $ids, $client, $newSub, ['email' => $username]);
 
     return [
