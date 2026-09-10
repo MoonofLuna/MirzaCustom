@@ -545,6 +545,7 @@ try {
         time_cron varchar(100) NULL,
         notifctions TEXT NOT NULL,
         panel_inbounds TEXT NULL,
+        xui_creds TEXT NULL,
         Status varchar(200) NULL)
         ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE utf8mb4_unicode_ci");
         if (!$result) {
@@ -595,6 +596,10 @@ try {
         $Check_filde = $connect->query("SHOW COLUMNS FROM invoice LIKE 'panel_inbounds'");
         if (mysqli_num_rows($Check_filde) != 1) {
             $result = $connect->query("ALTER TABLE invoice ADD panel_inbounds TEXT");
+        }
+        $Check_filde = $connect->query("SHOW COLUMNS FROM invoice LIKE 'xui_creds'");
+        if (mysqli_num_rows($Check_filde) != 1) {
+            $result = $connect->query("ALTER TABLE invoice ADD xui_creds TEXT");
         }
     }
 } catch (Exception $e) {

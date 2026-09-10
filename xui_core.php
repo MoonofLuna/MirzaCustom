@@ -265,6 +265,8 @@ function xui_build_client(string $protocol, array $f): array
     $email = $f['email'];
     $uuid = $f['uuid'] ?? generateUUID();
     $pass = $f['password'] ?? xui_secret(20);
+    $secret = $f['secret'] ?? xui_secret(16, true);
+    $sshUser = $f['sshUser'] ?? preg_replace('/[^a-z0-9_]/i', '', explode('@', (string) $email)[0]);
     $subId = $f['subId'] ?? '';
     $note = (string) ($f['note'] ?? '');
 
@@ -305,14 +307,14 @@ function xui_build_client(string $protocol, array $f): array
         case 'mtproto':
             return $base + [
                 'id' => $email,
-                'secret' => xui_secret(16, true),
+                'secret' => $secret,
                 'modeClassic' => true,
                 'modeSecure' => true,
                 'modeTls' => true,
                 'tlsDomain' => 'www.google.com',
             ];
         case 'ssh':
-            return $base + ['id' => $f['sshUser'] ?? preg_replace('/[^a-z0-9_]/i', '', explode('@', (string) $email)[0]), 'password' => $pass];
+            return $base + ['id' => $sshUser, 'password' => $pass];
         case 'l2tp':
         case 'pptp':
         case 'openvpn':
@@ -380,6 +382,7 @@ function xui_add_client($code_panel, array $inboundIds, array $f, ?array $allowP
     $ok = [];
     $results = [];
     $protocols = [];
+    $clients = [];
     $lastMsg = '';
 
     foreach ($inboundIds as $id) {
@@ -393,6 +396,7 @@ function xui_add_client($code_panel, array $inboundIds, array $f, ?array $allowP
         }
 
         $client = xui_build_client($proto, $f);
+        $clients[$id] = $client;
         $form = ['id' => (int) $id, 'settings' => xui_settings_blob($proto, $client)];
         $res = xui_req($code_panel, 'POST', '/addClient', $form);
         $good = is_array($res['json']) && !empty($res['json']['success']);
@@ -405,14 +409,14 @@ function xui_add_client($code_panel, array $inboundIds, array $f, ?array $allowP
     }
 
     if (count($ok) === count($inboundIds)) {
-        return ['success' => true, 'msg' => 'ok', 'results' => $results, 'protocols' => $protocols];
+        return ['success' => true, 'msg' => 'ok', 'results' => $results, 'protocols' => $protocols, 'clients' => $clients];
     }
 
     // Partial failure — roll back the ones that were created so we don't leak accounts.
     if (!empty($ok)) {
         xui_del_client($code_panel, $ok, $f['email']);
     }
-    return ['success' => false, 'msg' => $lastMsg ?: 'partial failure', 'results' => $results, 'protocols' => $protocols];
+    return ['success' => false, 'msg' => $lastMsg ?: 'partial failure', 'results' => $results, 'protocols' => $protocols, 'clients' => $clients];
 }
 
 /**
@@ -678,21 +682,31 @@ function xui_client_links($code_panel, array $inboundIds, array $client, string 
                 break;
             case 'gre':
                 $txt = xui_pull_config_text($code_panel, $id, $email, 'gre-configs');
-                if ($txt !== null) {
+                if ($txt !== null && $txt !== '') {
                     $configs[] = "GRE (inbound {$id}):\n" . $txt;
                 }
                 break;
             case 'ssh':
                 $txt = xui_pull_config_text($code_panel, $id, $email, 'ssh-configs');
-                if ($txt !== null) {
+                if ($txt !== null && $txt !== '') {
                     $configs[] = "SSH (inbound {$id}):\n" . $txt;
                 }
                 break;
             case 'openvpn':
-                $ovpn = xui_http_get(xui_base($panel) . '/panel/api/inbounds/' . (int) $id . '/ovpn/udp', xui_cookie_file($code_panel));
-                if (is_string($ovpn) && stripos($ovpn, 'client') !== false) {
-                    $files[] = ['name' => 'openvpn-' . $id . '.ovpn', 'content' => $ovpn];
-                    $configs[] = "OPENVPN (inbound {$id}):\n" . $ovpn;
+                foreach (['udp', 'tcp'] as $ovpnProto) {
+                    $r = xui_req($code_panel, 'GET', '/' . (int) $id . '/ovpn/' . $ovpnProto);
+                    $body = is_string($r['body'] ?? null) ? $r['body'] : '';
+                    $isErr = is_array($r['json']) && array_key_exists('success', $r['json']) && empty($r['json']['success']);
+                    if ((int) ($r['status'] ?? 0) >= 200 && (int) ($r['status'] ?? 0) < 300 && trim($body) !== '' && !$isErr) {
+                        $files[] = ['name' => 'openvpn-' . $id . '-' . $ovpnProto . '.ovpn', 'content' => $body];
+                        $configs[] = "OPENVPN {$ovpnProto} (inbound {$id}):\n" . $body;
+                    }
+                }
+                break;
+            case 'mtproto':
+                $link = xui_mtproto_link($code_panel, $id, $client);
+                if ($link !== null) {
+                    $configs[] = $link;
                 }
                 break;
             case 'l2tp':
@@ -706,6 +720,47 @@ function xui_client_links($code_panel, array $inboundIds, array $client, string 
     }
 
     return ['subscription_url' => $subUrl, 'configs' => array_values(array_filter($configs)), 'files' => $files];
+}
+
+/**
+ * Build a Telegram MTProto proxy link. vpn-ui has no endpoint for this — the
+ * link is assembled from the client's `secret` plus the inbound host/port.
+ * Mode precedence: FakeTLS ("ee" + secret + hex(domain)) > Secure ("dd" + secret)
+ * > Classic (secret).
+ */
+function xui_mtproto_link($code_panel, $inboundId, array $client): ?string
+{
+    $panel = xui_panel_by_code($code_panel);
+    $host = parse_url(xui_base($panel), PHP_URL_HOST) ?: '';
+    if ($host === '') {
+        return null;
+    }
+    $inb = xui_inbound_get($code_panel, $inboundId);
+    $port = (int) ($inb['port'] ?? 0);
+
+    $secret = (string) ($client['secret'] ?? '');
+    if ($secret === '' && is_array($inb['settings']['clients'] ?? null)) {
+        foreach ($inb['settings']['clients'] as $c) {
+            if (($c['email'] ?? '') === ($client['email'] ?? '') && !empty($c['secret'])) {
+                $secret = (string) $c['secret'];
+                break;
+            }
+        }
+    }
+    if ($secret === '' || $port === 0) {
+        return null;
+    }
+
+    if (!empty($client['modeTls'])) {
+        $domain = (string) ($client['tlsDomain'] ?? 'www.google.com');
+        $wire = 'ee' . $secret . bin2hex($domain);
+    } elseif (!empty($client['modeSecure'])) {
+        $wire = 'dd' . $secret;
+    } else {
+        $wire = $secret;
+    }
+
+    return sprintf('https://t.me/proxy?server=%s&port=%d&secret=%s', rawurlencode($host), $port, $wire);
 }
 
 function xui_credentials_block($code_panel, $inboundId, string $proto, array $client): string
@@ -740,31 +795,66 @@ function xui_pull_config_file($code_panel, $inboundId, string $email, string $en
     return [['name' => $filename, 'content' => $txt]];
 }
 
+/**
+ * Fetch a per-client config endpoint (wgc-configs / awg-configs / gre-configs /
+ * ssh-configs) and flatten whatever shape it returns into a single text block.
+ *
+ * vpn-ui returns a bare JSON array for these: e.g.
+ *   wgc-configs -> [{"deviceIndex":0,"config":"[Interface]\n..."}]
+ *   ssh-configs -> [{"remark":"","host":"1.2.3.4","port":22,"link":"ssh://..."}]
+ * 3x-ui-style {"success":true,"obj":...} is also handled.
+ */
 function xui_pull_config_text($code_panel, $inboundId, string $email, string $endpoint): ?string
 {
     $res = xui_req($code_panel, 'GET', '/' . (int) $inboundId . '/' . $endpoint . '?email=' . rawurlencode($email));
     if (!empty($res['error'])) {
         return null;
     }
+
     $json = $res['json'];
+    $payload = null;
+
     if (is_array($json)) {
-        if (!empty($json['success']) && isset($json['obj'])) {
-            if (is_string($json['obj'])) {
-                return $json['obj'];
+        if (array_key_exists('success', $json)) {
+            if (empty($json['success'])) {
+                return null;
             }
-            if (is_array($json['obj'])) {
-                foreach (['config', 'conf', 'content', 'text', 'link'] as $k) {
-                    if (!empty($json['obj'][$k]) && is_string($json['obj'][$k])) {
-                        return $json['obj'][$k];
-                    }
-                }
-                return json_encode($json['obj'], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
+            $payload = $json['obj'] ?? null;
+        } else {
+            // bare array / object
+            $payload = $json;
+        }
+    }
+
+    if ($payload === null) {
+        return is_string($res['body']) && trim($res['body']) !== '' ? $res['body'] : null;
+    }
+    if (is_string($payload)) {
+        return $payload;
+    }
+
+    // Normalise to a list of entries
+    $entries = (is_array($payload) && array_is_list($payload)) ? $payload : [$payload];
+    $parts = [];
+    foreach ($entries as $entry) {
+        if (is_string($entry)) {
+            $parts[] = $entry;
+            continue;
+        }
+        if (!is_array($entry)) {
+            continue;
+        }
+        foreach (['config', 'conf', 'content', 'text', 'link', 'uri', 'plain', 'singbox'] as $k) {
+            if (!empty($entry[$k]) && is_string($entry[$k])) {
+                $parts[] = $entry[$k];
+                break;
             }
         }
-        return null;
     }
-    // Raw (non-JSON) body — e.g. a .conf file
-    return is_string($res['body']) ? $res['body'] : null;
+    if (empty($parts)) {
+        return json_encode($payload, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+    }
+    return implode("\n\n", array_values(array_unique($parts)));
 }
 
 /** Reuse x-ui_single.php's subscription fetcher when it is already loaded. */
