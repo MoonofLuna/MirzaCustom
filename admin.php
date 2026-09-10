@@ -1472,8 +1472,14 @@ $paycount
     step("home", $from_id);
     if ($userdata['type'] == "x-ui_single" or $userdata['type'] == "alireza_single") {
         sendmessage($from_id, "❌ نکته :
-برای فعالسازی پنل باید به منوی مدیریت پنل  رفته و گزینه های 
+برای فعالسازی پنل باید به منوی مدیریت پنل  رفته و گزینه های
 تنظیم شناسه اینباند و دامنه لینک ساب را حتما تنظیم نمایید در غیراینصورت کانفیگ ساخته نخواهد شد", null, 'HTML');
+    } elseif ($userdata['type'] == "x_ui" or $userdata['type'] == "vpn_ui") {
+        sendmessage($from_id, "❌ نکته :
+برای فعالسازی پنل به منوی مدیریت پنل بروید و گزینه های
+«🧩 تنظیم اینباند‌ها» و «🔗 دامنه لینک ساب» را حتما تنظیم نمایید" .
+            ($userdata['type'] == "vpn_ui" ? "\nدر صورت نیاز «🔀 پروتکل پیش‌فرض» را نیز تنظیم کنید." : "") .
+            "\nآدرس پنل باید شامل مسیر پایه (webBasePath) باشد.", null, 'HTML');
     } elseif ($userdata['type'] == "marzban") {
         sendmessage($from_id, "❌ نکته :
 برای فعالسازی پنل باید به منوی مدیریت پنل  رفته و گزینه های 
@@ -4960,6 +4966,20 @@ $text_expie_agent
             }
             sendmessage($from_id, $text_marzban, $optionalireza_single, 'HTML');
         }
+    } elseif ($marzban_list_get['type'] == "x_ui" || $marzban_list_get['type'] == "vpn_ui") {
+        $xui_opt = $marzban_list_get['type'] == "x_ui" ? $optionX_ui : $optionVpn_ui;
+        $xui_check_connect = xui_login($marzban_list_get['code_panel'], true);
+        if ($xui_check_connect === true) {
+            sendmessage($from_id, $textbotlang['Admin']['managepanel']['connectx-ui'], $xui_opt, 'HTML');
+        } elseif (!empty($xui_check_connect['msg'])) {
+            sendmessage($from_id, "❌ نام کاربری / رمز عبور / کد دو مرحله‌ای اشتباه است\n" . $xui_check_connect['msg'], $xui_opt, 'HTML');
+        } else {
+            $text_marzban = $textbotlang['Admin']['managepanel']['errorstateuspanel'];
+            if (!empty($xui_check_connect['error'])) {
+                $text_marzban .= PHP_EOL . "علت خطا: {$xui_check_connect['error']}";
+            }
+            sendmessage($from_id, $text_marzban, $xui_opt, 'HTML');
+        }
     } elseif ($marzban_list_get['type'] == "hiddify") {
         $System_Stats = serverstatus($marzban_list_get['name_panel']);
         if (!empty($System_Stats['status']) && $System_Stats['status'] != 200) {
@@ -5146,11 +5166,12 @@ $text_expie_agent
 } elseif ($user['step'] == "GeturlNewx") {
     $inputLink = trim($text);
     $typepanel = select("marzban_panel", "*", "name_panel", $user['Processing_value'], "select");
-    if ($typepanel['type'] !== "x-ui_single" && !filter_var($inputLink, FILTER_VALIDATE_URL)) {
+    $xuiFamilySub = in_array($typepanel['type'], ["x-ui_single", "x_ui", "vpn_ui"], true);
+    if (!$xuiFamilySub && !filter_var($inputLink, FILTER_VALIDATE_URL)) {
         sendmessage($from_id, $textbotlang['Admin']['managepanel']['Invalid-domain'], $backadmin, 'HTML');
         return;
     }
-    if ($typepanel['type'] === "x-ui_single") {
+    if ($xuiFamilySub) {
         $text = normalizeXuiSingleSubscriptionBaseUrl($inputLink);
     } else {
         $text = $inputLink;
@@ -5206,8 +5227,72 @@ $text_expie_agent
 ⚠️ در صورتی که پنل wgdashboard هستید باید نام کانفیگ را ارسال نمایید", $backadmin, 'HTML');
     step('getinboundiid', $from_id);
 } elseif ($user['step'] == "getinboundiid") {
-    sendmessage($from_id, "✅ شناسه اینباند با موفقیت ذخیره گردید", $optionX_ui_single, 'HTML');
+    $typepanel = select("marzban_panel", "*", "name_panel", $user['Processing_value'], "select");
+    outtypepanel($typepanel['type'], "✅ شناسه اینباند با موفقیت ذخیره گردید");
+    if (!in_array($typepanel['type'], ["x_ui", "vpn_ui"], true)) {
+        sendmessage($from_id, "✅ شناسه اینباند با موفقیت ذخیره گردید", $optionX_ui_single, 'HTML');
+    }
     update("marzban_panel", "inboundid", $text, "name_panel", $user['Processing_value']);
+    step('home', $from_id);
+} elseif ($text == "🧩 تنظیم اینباند‌ها" && $adminrulecheck['rule'] == "administrator") {
+    sendmessage($from_id, "📌 شناسه اینباندها را با کاما یا فاصله بفرستید (مثال: 1,4,7)\nاکانت روی همه این اینباندها با یک uuid و یک subId ساخته می‌شود و کاربر یک لینک ساب می‌گیرد.", $backadmin, 'HTML');
+    step('set_inbound_list', $from_id);
+} elseif ($user['step'] == "set_inbound_list") {
+    $xui_ids = xui_norm_ids($text);
+    if (empty($xui_ids)) {
+        sendmessage($from_id, "❌ لیست نامعتبر است. مثال درست: 1,4,7", $backadmin, 'HTML');
+        return;
+    }
+    $typepanel = select("marzban_panel", "*", "name_panel", $user['Processing_value'], "select");
+    update("marzban_panel", "inbound_list", json_encode(array_values($xui_ids)), "name_panel", $user['Processing_value']);
+    update("marzban_panel", "inboundid", (string) $xui_ids[0], "name_panel", $user['Processing_value']);
+    outtypepanel($typepanel['type'], "✅ لیست اینباندها ذخیره شد: " . implode(', ', $xui_ids));
+    step('home', $from_id);
+} elseif ($text == "🔀 پروتکل پیش‌فرض" && $adminrulecheck['rule'] == "administrator") {
+    sendmessage($from_id, "پروتکل پیش‌فرض را ارسال کنید (وقتی اینباند مقصد پروتکلش قابل تشخیص نباشد استفاده می‌شود).\nمقادیر مجاز:\n" . implode(', ', xui_all_protocols()), $backadmin, 'HTML');
+    step('set_default_protocol', $from_id);
+} elseif ($user['step'] == "set_default_protocol") {
+    $proto = strtolower(trim($text));
+    if (!in_array($proto, xui_all_protocols(), true)) {
+        sendmessage($from_id, "❌ پروتکل نامعتبر است.", $backadmin, 'HTML');
+        return;
+    }
+    $typepanel = select("marzban_panel", "*", "name_panel", $user['Processing_value'], "select");
+    update("marzban_panel", "default_protocol", $proto, "name_panel", $user['Processing_value']);
+    outtypepanel($typepanel['type'], "✅ پروتکل پیش‌فرض ذخیره شد: " . $proto);
+    step('home', $from_id);
+} elseif ($text == "🔑 کد دو مرحله‌ای" && $adminrulecheck['rule'] == "administrator") {
+    sendmessage($from_id, "🔑 کلید مخفی TOTP (Base32) پنل را ارسال کنید.\nبرای غیرفعال‌سازی، کلمه <code>حذف</code> را بفرستید.", $backadmin, 'HTML');
+    step('set_twofa_secret', $from_id);
+} elseif ($user['step'] == "set_twofa_secret") {
+    $secret = trim($text);
+    if ($secret == "حذف" || $secret == "-") {
+        $secret = null;
+    }
+    $typepanel = select("marzban_panel", "*", "name_panel", $user['Processing_value'], "select");
+    update("marzban_panel", "twofa_secret", $secret, "name_panel", $user['Processing_value']);
+    update("marzban_panel", "datelogin", null, "name_panel", $user['Processing_value']);
+    outtypepanel($typepanel['type'], $secret === null ? "✅ کد دو مرحله‌ای حذف شد" : "✅ کلید دو مرحله‌ای ذخیره شد");
+    step('home', $from_id);
+} elseif ($text == "🔏 ساخت گواهی" && $adminrulecheck['rule'] == "administrator") {
+    sendmessage($from_id, "نوع گواهی و شناسه اینباند را بفرستید (مثال: <code>openvpn 3</code>)\nنوع‌های مجاز: openvpn، ocserv، sstp، ikev2", $backadmin, 'HTML');
+    step('gen_cert_pick', $from_id);
+} elseif ($user['step'] == "gen_cert_pick") {
+    $parts = preg_split('/\s+/', trim($text));
+    $kind = strtolower($parts[0] ?? '');
+    if (!in_array($kind, ["openvpn", "ocserv", "openconnect", "sstp", "ikev2"], true)) {
+        sendmessage($from_id, "❌ نوع گواهی نامعتبر است.", $backadmin, 'HTML');
+        return;
+    }
+    $typepanel = select("marzban_panel", "*", "name_panel", $user['Processing_value'], "select");
+    $cert = vpnui_gen_cert($typepanel['code_panel'], $kind);
+    if (!empty($cert['success'])) {
+        $dump = is_array($cert['obj'] ?? null) ? json_encode($cert['obj'], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) : (string) ($cert['obj'] ?? '');
+        sendmessage($from_id, "✅ گواهی ساخته شد. مقادیر را در اینباند مربوطه در پنل vpn-ui وارد کنید:\n<code>" . htmlspecialchars(mb_substr($dump, 0, 3500)) . "</code>", $backadmin, 'HTML');
+    } else {
+        sendmessage($from_id, "❌ خطا در ساخت گواهی: " . ($cert['msg'] ?? 'unknown'), $backadmin, 'HTML');
+    }
+    outtypepanel($typepanel['type'], $textbotlang['Admin']['managepanel']['saveddata']);
     step('home', $from_id);
 } elseif ($text == "👤 ویرایش نام کاربری" && $adminrulecheck['rule'] == "administrator") {
     sendmessage($from_id, $textbotlang['Admin']['managepanel']['getusernamenew'], $backadmin, 'HTML');
@@ -8779,6 +8864,8 @@ if ($datain == "settimecornremove" && $adminrulecheck['rule'] == "administrator"
         sendmessage($from_id, $textbotlang['users']['selectoption'], $optionathmarzban, 'HTML');
     } elseif ($typepanel == "x-ui_single") {
         sendmessage($from_id, $textbotlang['users']['selectoption'], $optionathx_ui, 'HTML');
+    } elseif ($typepanel == "x_ui" || $typepanel == "vpn_ui") {
+        sendmessage($from_id, $textbotlang['users']['selectoption'], $optionathx_ui, 'HTML');
     } elseif ($typepanel == "hiddify") {
         sendmessage($from_id, $textbotlang['users']['selectoption'], $optionathx_ui, 'HTML');
     } elseif ($typepanel == "alireza") {
@@ -11076,6 +11163,13 @@ elseif ($text == "🫣 مخفی کردن پنل برای یک کاربر" && $ad
         $datainbound = json_encode($userdata['service_ids'], true);
     } elseif ($marzban_list_get['type'] == "x-ui_single" || $marzban_list_get['type'] == "alireza_single") {
         $datainbound = $text;
+    } elseif ($marzban_list_get['type'] == "x_ui" || $marzban_list_get['type'] == "vpn_ui") {
+        $xui_ids = xui_norm_ids($text);
+        if (empty($xui_ids)) {
+            sendmessage($from_id, "❌ لیست اینباند نامعتبر است. مثال: 1,4,7", $shopkeyboard, 'HTML');
+            return;
+        }
+        $datainbound = json_encode(array_values($xui_ids));
     } elseif ($marzban_list_get['type'] == "s_ui") {
         $data = GetClientsS_UI($text, $panel['name_panel']);
         if (count($data) == 0) {
@@ -11885,7 +11979,7 @@ if ($datain == "settimecornday" && $adminrulecheck['rule'] == "administrator") {
             ['text' => "⚙️ ارسال لینک اشتراک", 'callback_data' => "none"],
         ];
     }
-    if (in_array($panel['type'], ['marzban', "x-ui_single", "marzneshin"])) {
+    if (in_array($panel['type'], ['marzban', "x-ui_single", "marzneshin", "x_ui", "vpn_ui"])) {
         $Bot_Status['inline_keyboard'][] = [
             ['text' => $statusconnecton, 'callback_data' => "editpanel-connecton-{$panel['conecton']}-{$panel['code_panel']}"],
             ['text' => "📊 اولین اتصال", 'callback_data' => "none"],
@@ -12148,7 +12242,7 @@ if ($datain == "settimecornday" && $adminrulecheck['rule'] == "administrator") {
             ['text' => "⚙️ ارسال لینک اشتراک", 'callback_data' => "none"],
         ];
     }
-    if (in_array($panel['type'], ['marzban', "x-ui_single", "marzneshin"])) {
+    if (in_array($panel['type'], ['marzban', "x-ui_single", "marzneshin", "x_ui", "vpn_ui"])) {
         $Bot_Status['inline_keyboard'][] = [
             ['text' => $statusconnecton, 'callback_data' => "editpanel-connecton-{$panel['conecton']}-{$panel['code_panel']}"],
             ['text' => "📊 اولین اتصال", 'callback_data' => "none"],

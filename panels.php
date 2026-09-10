@@ -13,6 +13,9 @@ require_once __DIR__ . '/s_ui.php';
 require_once __DIR__ . '/ibsng.php';
 require_once __DIR__ . '/mikrotik.php';
 require_once __DIR__ . '/Rebecca.php';
+require_once __DIR__ . '/xui_core.php';
+require_once __DIR__ . '/x_ui.php';
+require_once __DIR__ . '/vpn_ui.php';
 
 class ManagePanel
 {
@@ -235,6 +238,35 @@ class ManagePanel
                         $Output['subscription_url'] = "https://$domainhosts/sub/" . $inoice['id_invoice'];
                     }
                 }
+            }
+        } elseif ($Get_Data_Panel['type'] == "x_ui" || $Get_Data_Panel['type'] == "vpn_ui") {
+            $created = xuisvc_create($Get_Data_Panel, $Get_Data_Product, $usernameC, [
+                'expire' => $expire,
+                'data_limit' => $data_limit,
+                'type' => $Data_Config['type'] ?? '',
+                'note' => $note,
+            ]);
+            if (($created['status'] ?? '') !== 'successful') {
+                return array(
+                    'status' => 'Unsuccessful',
+                    'msg' => $created['msg'] ?? 'Unsuccessful'
+                );
+            }
+            if (!empty($created['panel_inbounds'])) {
+                $has_invoice = select("invoice", "*", "username", $usernameC, "count");
+                if ($has_invoice) {
+                    update("invoice", "panel_inbounds", $created['panel_inbounds'], "username", $usernameC);
+                }
+            }
+            $Output['status'] = 'successful';
+            $Output['username'] = $usernameC;
+            $Output['subscription_url'] = $created['subscription_url'];
+            $Output['configs'] = $created['configs'];
+            if (!empty($created['files'])) {
+                $Output['files'] = $created['files'];
+            }
+            if ($inoice != false) {
+                $Output['subscription_url'] = "https://$domainhosts/sub/" . $inoice['id_invoice'];
             }
         } elseif ($Get_Data_Panel['type'] == "hiddify") {
             if ($expire != 0) {
@@ -725,6 +757,33 @@ class ManagePanel
                 'sub_last_user_agent' => null,
             );
 
+        } elseif ($Get_Data_Panel['type'] == "x_ui" || $Get_Data_Panel['type'] == "vpn_ui") {
+            $data_user = xuisvc_datauser($Get_Data_Panel, $username);
+            if (($data_user['status'] ?? '') === 'Unsuccessful') {
+                return array(
+                    'status' => 'Unsuccessful',
+                    'msg' => $data_user['msg'] ?? 'User not found'
+                );
+            }
+            $linksub = $data_user['subscription_url'];
+            if ($inoice != false) {
+                $linksub = "https://$domainhosts/sub/" . $inoice['id_invoice'];
+            }
+            $Output = array(
+                'status' => $data_user['status'],
+                'username' => $data_user['username'],
+                'data_limit' => $data_user['data_limit'],
+                'expire' => $data_user['expire'],
+                'online_at' => $data_user['online_at'],
+                'used_traffic' => $data_user['used_traffic'],
+                'links' => $data_user['links'],
+                'subscription_url' => $linksub,
+                'sub_updated_at' => null,
+                'sub_last_user_agent' => null,
+            );
+            if (!empty($data_user['files'])) {
+                $Output['files'] = $data_user['files'];
+            }
         } elseif ($Get_Data_Panel['type'] == "hiddify") {
             $UsernameData = getdatauser($username, $Get_Data_Panel['name_panel']);
             if (!isset($UsernameData)) {
@@ -1172,6 +1231,23 @@ class ManagePanel
                     'subscription_url' => $Get_Data_Panel['linksubx'] . "/{$subId}",
                 );
             }
+        } elseif ($Get_Data_Panel['type'] == "x_ui" || $Get_Data_Panel['type'] == "vpn_ui") {
+            $revoke = xuisvc_revoke($Get_Data_Panel, $username);
+            if (($revoke['status'] ?? '') !== 'successful') {
+                $Output = array(
+                    'status' => 'Unsuccessful',
+                    'msg' => $revoke['msg'] ?? 'Unsuccessful'
+                );
+            } else {
+                $Output = array(
+                    'status' => 'successful',
+                    'configs' => $revoke['configs'],
+                    'subscription_url' => $revoke['subscription_url'],
+                );
+                if (!empty($revoke['files'])) {
+                    $Output['files'] = $revoke['files'];
+                }
+            }
         } elseif ($Get_Data_Panel['type'] == "hiddify") {
             $Output = array(
                 'status' => 'Unsuccessful',
@@ -1370,6 +1446,19 @@ class ManagePanel
                 $Output = array(
                     'status' => 'Unsuccessful',
                     'msg' => $UsernameData['msg']
+                );
+            } else {
+                $Output = array(
+                    'status' => 'successful',
+                    'username' => $username,
+                );
+            }
+        } elseif ($Get_Data_Panel['type'] == "x_ui" || $Get_Data_Panel['type'] == "vpn_ui") {
+            $removed = xuisvc_remove($Get_Data_Panel, $username);
+            if (($removed['status'] ?? '') !== 'successful') {
+                $Output = array(
+                    'status' => 'Unsuccessful',
+                    'msg' => $removed['msg'] ?? 'Unsuccessful'
                 );
             } else {
                 $Output = array(
@@ -1645,6 +1734,8 @@ class ManagePanel
                 'status' => true,
                 'data' => $modify
             );
+        } elseif ($Get_Data_Panel['type'] == "x_ui" || $Get_Data_Panel['type'] == "vpn_ui") {
+            return xuisvc_modify($Get_Data_Panel, $username, $config);
         } elseif ($Get_Data_Panel['type'] == "hiddify") {
             $modify = updateuserhi($username, $name_panel, $config);
             if (!empty($modify['error'])) {
@@ -1795,7 +1886,7 @@ class ManagePanel
                 'status' => 'successful',
                 'msg' => null
             );
-        } elseif ($Get_Data_Panel['type'] == "x-ui_single") {
+        } elseif ($Get_Data_Panel['type'] == "x-ui_single" || $Get_Data_Panel['type'] == "x_ui" || $Get_Data_Panel['type'] == "vpn_ui") {
             if ($DataUserOut['status'] == "active") {
                 $status = false;
             } else {
@@ -1945,6 +2036,8 @@ class ManagePanel
                 'status' => true,
                 'data' => $reset
             );
+        } elseif ($panel['type'] == 'x_ui' || $panel['type'] == 'vpn_ui') {
+            return xuisvc_reset($panel, $username);
         } elseif ($panel['type'] == 'alireza_single') {
             $reset = ResetUserDataUsagealirezasin($username, $panel['name_panel']);
             if (!empty($reset['status']) && $reset['status'] != 200) {
@@ -2130,7 +2223,7 @@ class ManagePanel
                 'expire_strategy' => $expire_strotegy,
                 'data_limit' => $data_limit_new
             );
-        } elseif ($panel['type'] == "x-ui_single") {
+        } elseif ($panel['type'] == "x-ui_single" || $panel['type'] == "x_ui" || $panel['type'] == "vpn_ui") {
             $data = array(
                 'settings' => json_encode(
                     array(
@@ -2317,7 +2410,7 @@ class ManagePanel
             $data = array(
                 'data_limit' => $new_limit,
             );
-        } elseif ($panel['type'] == "x-ui_single") {
+        } elseif ($panel['type'] == "x-ui_single" || $panel['type'] == "x_ui" || $panel['type'] == "vpn_ui") {
             $data = array(
                 'settings' => json_encode(
                     array(
@@ -2467,7 +2560,7 @@ class ManagePanel
                 'expire_strategy' => "fixed_date",
 
             );
-        } elseif ($panel['type'] == "x-ui_single") {
+        } elseif ($panel['type'] == "x-ui_single" || $panel['type'] == "x_ui" || $panel['type'] == "vpn_ui") {
             $new_limit = $new_limit * 1000;
             $data = array(
                 'settings' => json_encode(

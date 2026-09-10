@@ -392,7 +392,11 @@ try {
         changeloc varchar(60) NULL,
         on_hold_test varchar(60) NOT NULL,
         customvolume TEXT NULL,
-        hide_user TEXT NULL)
+        hide_user TEXT NULL,
+        inbound_list TEXT NULL,
+        twofa_secret varchar(64) NULL,
+        sub_json varchar(20) NULL,
+        default_protocol varchar(32) NULL)
         ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE utf8mb4_unicode_ci");
         if (!$result) {
             echo "table marzban_panel" . mysqli_error($connect);
@@ -460,6 +464,11 @@ try {
         addFieldToTable("marzban_panel", "status", "active", "VARCHAR(50)");
         addFieldToTable("marzban_panel", "sublink", "onsublink", "VARCHAR(50)");
         addFieldToTable("marzban_panel", "config", "offconfig", "VARCHAR(50)");
+        // --- x_ui / vpn_ui multi-inbound panel types ---
+        addFieldToTable("marzban_panel", "inbound_list", null, "TEXT");
+        addFieldToTable("marzban_panel", "twofa_secret", null, "VARCHAR(64)");
+        addFieldToTable("marzban_panel", "sub_json", null, "VARCHAR(20)");
+        addFieldToTable("marzban_panel", "default_protocol", null, "VARCHAR(32)");
     }
 } catch (Exception $e) {
     file_put_contents('error_log', $e->getMessage());
@@ -486,6 +495,8 @@ try {
         inbounds TEXT NULL,
         proxies TEXT NULL,
         category varchar(400) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NULL,
+        inbound_list TEXT NULL,
+        protocol varchar(32) NULL,
         hide_panel TEXT  NOT NULL)
         ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE utf8mb4_unicode_ci");
         if (!$result) {
@@ -502,6 +513,9 @@ try {
         addFieldToTable("product", "data_limit_reset", "no_reset", "varchar(100)");
         addFieldToTable("product", "agent", "f", "varchar(50)");
         addFieldToTable("product", "code_product", null, "varchar(50)");
+        // --- x_ui / vpn_ui per-product overrides ---
+        addFieldToTable("product", "inbound_list", null, "TEXT");
+        addFieldToTable("product", "protocol", null, "VARCHAR(32)");
     }
 } catch (Exception $e) {
     file_put_contents('error_log', $e->getMessage());
@@ -530,6 +544,7 @@ try {
         refral varchar(100) NULL,
         time_cron varchar(100) NULL,
         notifctions TEXT NOT NULL,
+        panel_inbounds TEXT NULL,
         Status varchar(200) NULL)
         ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE utf8mb4_unicode_ci");
         if (!$result) {
@@ -576,6 +591,10 @@ try {
         $Check_filde = $connect->query("SHOW COLUMNS FROM invoice LIKE 'Status'");
         if (mysqli_num_rows($Check_filde) != 1) {
             $result = $connect->query("ALTER TABLE invoice ADD Status VARCHAR(100)");
+        }
+        $Check_filde = $connect->query("SHOW COLUMNS FROM invoice LIKE 'panel_inbounds'");
+        if (mysqli_num_rows($Check_filde) != 1) {
+            $result = $connect->query("ALTER TABLE invoice ADD panel_inbounds TEXT");
         }
     }
 } catch (Exception $e) {

@@ -2205,11 +2205,15 @@ function addFieldToTable($tableName, $fieldName, $defaultValue = null, $datatype
 }
 function outtypepanel($typepanel, $message)
 {
-    global $from_id, $optionMarzban, $optionX_ui_single, $optionhiddfy, $optionalireza, $optionalireza_single, $optionmarzneshin, $option_mikrotik, $optionwg, $options_ui, $optioneylanpanel, $optionibsng;
+    global $from_id, $optionMarzban, $optionX_ui_single, $optionX_ui, $optionVpn_ui, $optionhiddfy, $optionalireza, $optionalireza_single, $optionmarzneshin, $option_mikrotik, $optionwg, $options_ui, $optioneylanpanel, $optionibsng;
     if ($typepanel == "marzban") {
         sendmessage($from_id, $message, $optionMarzban, 'HTML');
     } elseif ($typepanel == "x-ui_single") {
         sendmessage($from_id, $message, $optionX_ui_single, 'HTML');
+    } elseif ($typepanel == "x_ui") {
+        sendmessage($from_id, $message, $optionX_ui, 'HTML');
+    } elseif ($typepanel == "vpn_ui") {
+        sendmessage($from_id, $message, $optionVpn_ui, 'HTML');
     } elseif ($typepanel == "hiddify") {
         sendmessage($from_id, $message, $optionhiddfy, 'HTML');
     } elseif ($typepanel == "alireza_single") {

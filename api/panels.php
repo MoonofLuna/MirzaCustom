@@ -413,6 +413,12 @@ switch ($data['actions'] ?? '') {
             $datainbound = json_encode($servies);
         } elseif ($panel['type'] == "ibsng" || $panel['type'] == "mikrotik") {
             $datainbound = $data['input'];
+        } elseif ($panel['type'] == "x_ui" || $panel['type'] == "vpn_ui") {
+            $acct = xui_find_client($panel['code_panel'], $data['input']);
+            if (empty($acct['found'])) {
+                sendJsonResponse(false, "User Not Found", [], 200);
+            }
+            $datainbound = json_encode(array_values($acct['inboundIds']));
         } else {
             sendJsonResponse(false, "panel_not_support_options", [], 200);
         }
