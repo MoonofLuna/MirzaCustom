@@ -739,6 +739,10 @@ fi
 
     TEMP_DIR="/tmp/mirzabot"
     mkdir -p "$TEMP_DIR"
+    if [[ "$ZIP_URL" != https://* ]]; then
+        echo -e "\e[93mNo release found via GitHub API, falling back to the main branch.\033[0m"
+        ZIP_URL="https://github.com/MoonofLuna/MirzaCustom/archive/refs/heads/main.zip"
+    fi
     wget -O "$TEMP_DIR/bot.zip" "$ZIP_URL" || {
         echo -e "\e[91mError: Failed to download the specified version.\033[0m"
         exit 1
@@ -1309,6 +1313,10 @@ function install_bot_with_marzban() {
 
     TEMP_DIR="/tmp/mirzabot"
     mkdir -p "$TEMP_DIR"
+    if [[ "$ZIP_URL" != https://* ]]; then
+        echo -e "\e[93mNo release found via GitHub API, falling back to the main branch.\033[0m"
+        ZIP_URL="https://github.com/MoonofLuna/MirzaCustom/archive/refs/heads/main.zip"
+    fi
     wget -O "$TEMP_DIR/bot.zip" "$ZIP_URL" || {
         echo -e "\e[91mError: Failed to download bot files.\033[0m"
         exit 1
@@ -1578,6 +1586,10 @@ function update_bot() {
     TEMP_DIR="/tmp/mirzabot_update"
     mkdir -p "$TEMP_DIR"
 
+    if [[ "$ZIP_URL" != https://* ]]; then
+        echo -e "\e[93mNo release found via GitHub API, falling back to the main branch.\033[0m"
+        ZIP_URL="https://github.com/MoonofLuna/MirzaCustom/archive/refs/heads/main.zip"
+    fi
     wget -O "$TEMP_DIR/bot.zip" "$ZIP_URL" || {
         echo -e "\e[91mError: Failed to download update package.\033[0m"
         exit 1
