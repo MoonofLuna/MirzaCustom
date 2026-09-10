@@ -1639,6 +1639,7 @@ function update_bot() {
         curl -s "https://${CLEAN_URL}/table.php" || {
             echo -e "\e[91mSetup script execution failed for https://${CLEAN_URL}/table.php!\033[0m"
         }
+        curl -s "https://${CLEAN_URL}/migrate.php" >/dev/null 2>&1 || true
     else
         echo -e "\e[91mUnable to detect domainhosts from config.php. Skipping table setup call.\033[0m"
     fi
